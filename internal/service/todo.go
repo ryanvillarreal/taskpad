@@ -40,7 +40,13 @@ func (s *todoService) Create(req model.CreateTodoRequest) (*model.Todo, error) {
 	if err := validateTitle(req.Title); err != nil {
 		return nil, err
 	}
-	if err := validatePriority(req.Priority); err != nil {
+	if err := validateStatus(req.Status); err != nil {
+		return nil, err
+	}
+	if err := validateUrgency(req.Urgency); err != nil {
+		return nil, err
+	}
+	if err := validateTodoTags(req.Tags); err != nil {
 		return nil, err
 	}
 
@@ -49,15 +55,20 @@ func (s *todoService) Create(req model.CreateTodoRequest) (*model.Todo, error) {
 		ID:          uuid.New().String(),
 		Title:       req.Title,
 		Description: req.Description,
-		Completed:   false,
-		Priority:    req.Priority,
+		Status:      req.Status,
+		Urgency:     req.Urgency,
+		Tags:        req.Tags,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 
-	if todo.Priority == "" {
-		todo.Priority = model.PriorityMedium
+	if todo.Status == "" {
+		todo.Status = model.TodoStatusActive
 	}
+	if todo.Urgency == "" {
+		todo.Urgency = model.TodoUrgencyNormal
+	}
+	syncLegacyFields(todo)
 
 	if req.DueDate != nil {
 		t, err := time.Parse(time.RFC3339, *req.DueDate)
@@ -107,11 +118,23 @@ func (s *todoService) Update(id string, req model.UpdateTodoRequest) (*model.Tod
 	if req.Description != nil {
 		todo.Description = *req.Description
 	}
-	if req.Priority != nil {
-		if err := validatePriority(*req.Priority); err != nil {
+	if req.Status != nil {
+		if err := validateStatus(*req.Status); err != nil {
 			return nil, err
 		}
-		todo.Priority = *req.Priority
+		todo.Status = *req.Status
+	}
+	if req.Urgency != nil {
+		if err := validateUrgency(*req.Urgency); err != nil {
+			return nil, err
+		}
+		todo.Urgency = *req.Urgency
+	}
+	if req.Tags != nil {
+		if err := validateTodoTags(req.Tags); err != nil {
+			return nil, err
+		}
+		todo.Tags = req.Tags
 	}
 	if req.DueDate != nil {
 		t, err := time.Parse(time.RFC3339, *req.DueDate)
@@ -123,6 +146,8 @@ func (s *todoService) Update(id string, req model.UpdateTodoRequest) (*model.Tod
 	if req.CalendarEventID != nil {
 		todo.CalendarEventID = *req.CalendarEventID
 	}
+
+	syncLegacyFields(todo)
 
 	if err := s.repo.Update(todo); err != nil {
 		return nil, fmt.Errorf("update todo: %w", err)
@@ -150,7 +175,13 @@ func (s *todoService) SetCompleted(id string, completed bool) (*model.Todo, erro
 		return nil, ErrNotFound
 	}
 
-	todo.Completed = completed
+	if completed {
+		todo.Status = model.TodoStatusDone
+	} else {
+		todo.Status = model.TodoStatusActive
+	}
+	syncLegacyFields(todo)
+
 	if err := s.repo.Update(todo); err != nil {
 		return nil, fmt.Errorf("update todo: %w", err)
 	}
@@ -187,16 +218,40 @@ func validateTitle(title string) error {
 	return nil
 }
 
-func validatePriority(p model.Priority) error {
-	if p == "" {
-		return nil // will default to medium
+func validateStatus(status model.TodoStatus) error {
+	if status == "" {
+		return nil
 	}
-	switch p {
-	case model.PriorityLow, model.PriorityMedium, model.PriorityHigh:
+	switch status {
+	case model.TodoStatusActive, model.TodoStatusPaused, model.TodoStatusDone:
 		return nil
 	default:
-		return fmt.Errorf("%w: priority must be low, medium, or high", ErrValidation)
+		return fmt.Errorf("%w: status must be active, paused, or done", ErrValidation)
 	}
+}
+
+func validateUrgency(urgency model.TodoUrgency) error {
+	if urgency == "" {
+		return nil
+	}
+	switch urgency {
+	case model.TodoUrgencyNow, model.TodoUrgencyHigh, model.TodoUrgencyNormal, model.TodoUrgencyLow, model.TodoUrgencyBackburner:
+		return nil
+	default:
+		return fmt.Errorf("%w: urgency must be now, high, normal, low, or backburner", ErrValidation)
+	}
+}
+
+func validateTodoTags(tags []string) error {
+	if len(tags) > 20 {
+		return fmt.Errorf("%w: maximum 20 tags allowed", ErrValidation)
+	}
+	for _, tag := range tags {
+		if len(tag) > 100 {
+			return fmt.Errorf("%w: each tag must be 100 characters or less", ErrValidation)
+		}
+	}
+	return nil
 }
 
 func sanitizeListParams(p model.ListParams) model.ListParams {
@@ -210,4 +265,19 @@ func sanitizeListParams(p model.ListParams) model.ListParams {
 		p.Offset = 0
 	}
 	return p
+}
+
+func syncLegacyFields(todo *model.Todo) {
+	todo.Completed = todo.Status == model.TodoStatusDone
+	switch todo.Urgency {
+	case model.TodoUrgencyNow, model.TodoUrgencyHigh:
+		todo.Priority = model.PriorityHigh
+	case model.TodoUrgencyLow, model.TodoUrgencyBackburner:
+		todo.Priority = model.PriorityLow
+	default:
+		todo.Priority = model.PriorityMedium
+	}
+	if todo.Tags == nil {
+		todo.Tags = []string{}
+	}
 }

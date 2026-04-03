@@ -19,7 +19,9 @@ type ListResult[T any] struct {
 // TodoFilters holds optional filters for listing todos.
 type TodoFilters struct {
 	Completed *bool
-	Priority  *Priority
+	Status    *TodoStatus
+	Urgency   *TodoUrgency
+	Tag       *string
 }
 
 // NoteFilters holds optional filters for listing notes.

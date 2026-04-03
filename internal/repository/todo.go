@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -30,27 +31,41 @@ func NewTodoRepository(db *sql.DB) TodoRepository {
 }
 
 func (r *todoRepo) Create(todo *model.Todo) error {
-	_, err := r.db.Exec(
-		`INSERT INTO todos (id, title, description, completed, priority, due_date, calendar_event_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		todo.ID, todo.Title, todo.Description, todo.Completed, todo.Priority,
-		todo.DueDate, todo.CalendarEventID, todo.CreatedAt, todo.UpdatedAt,
+	tagsJSON, err := json.Marshal(todo.Tags)
+	if err != nil {
+		return fmt.Errorf("marshal tags: %w", err)
+	}
+	_, err = r.db.Exec(
+		`INSERT INTO todos (id, title, description, completed, priority, status, urgency, tags, due_date, calendar_event_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		todo.ID, todo.Title, todo.Description, todo.Completed, todo.Priority, todo.Status, todo.Urgency,
+		string(tagsJSON), todo.DueDate, todo.CalendarEventID, todo.CreatedAt, todo.UpdatedAt,
 	)
 	return err
 }
 
 func (r *todoRepo) GetByID(id string) (*model.Todo, error) {
 	todo := &model.Todo{}
+	var tagsJSON string
 	err := r.db.QueryRow(
-		`SELECT id, title, description, completed, priority, due_date, calendar_event_id, created_at, updated_at
+		`SELECT id, title, description, completed, priority, status, urgency, tags, due_date, calendar_event_id, created_at, updated_at
 		 FROM todos WHERE id = ?`, id,
-	).Scan(&todo.ID, &todo.Title, &todo.Description, &todo.Completed, &todo.Priority,
-		&todo.DueDate, &todo.CalendarEventID, &todo.CreatedAt, &todo.UpdatedAt)
+	).Scan(&todo.ID, &todo.Title, &todo.Description, &todo.Completed, &todo.Priority, &todo.Status, &todo.Urgency,
+		&tagsJSON, &todo.DueDate, &todo.CalendarEventID, &todo.CreatedAt, &todo.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	return todo, err
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &todo.Tags); err != nil {
+		return nil, fmt.Errorf("unmarshal tags: %w", err)
+	}
+	if todo.Tags == nil {
+		todo.Tags = []string{}
+	}
+	return todo, nil
 }
 
 func (r *todoRepo) List(params model.ListParams, filters model.TodoFilters) (*model.ListResult[model.Todo], error) {
@@ -64,8 +79,8 @@ func (r *todoRepo) List(params model.ListParams, filters model.TodoFilters) (*mo
 	}
 
 	// Build and execute list query.
-	orderClause := buildOrderClause(params, []string{"created_at", "updated_at", "title", "priority", "due_date"})
-	query := "SELECT id, title, description, completed, priority, due_date, calendar_event_id, created_at, updated_at FROM todos" +
+	orderClause := buildOrderClause(params, []string{"created_at", "updated_at", "title", "urgency", "due_date", "status"})
+	query := "SELECT id, title, description, completed, priority, status, urgency, tags, due_date, calendar_event_id, created_at, updated_at FROM todos" +
 		where + orderClause + " LIMIT ? OFFSET ?"
 	args = append(args, params.Limit, params.Offset)
 
@@ -78,9 +93,16 @@ func (r *todoRepo) List(params model.ListParams, filters model.TodoFilters) (*mo
 	todos := make([]model.Todo, 0)
 	for rows.Next() {
 		var t model.Todo
-		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority,
-			&t.DueDate, &t.CalendarEventID, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority, &t.Status, &t.Urgency,
+			&tagsJSON, &t.DueDate, &t.CalendarEventID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan todo: %w", err)
+		}
+		if err := json.Unmarshal([]byte(tagsJSON), &t.Tags); err != nil {
+			return nil, fmt.Errorf("unmarshal tags: %w", err)
+		}
+		if t.Tags == nil {
+			t.Tags = []string{}
 		}
 		todos = append(todos, t)
 	}
@@ -95,10 +117,14 @@ func (r *todoRepo) List(params model.ListParams, filters model.TodoFilters) (*mo
 
 func (r *todoRepo) Update(todo *model.Todo) error {
 	todo.UpdatedAt = time.Now().UTC()
-	_, err := r.db.Exec(
-		`UPDATE todos SET title=?, description=?, completed=?, priority=?, due_date=?, calendar_event_id=?, updated_at=?
+	tagsJSON, err := json.Marshal(todo.Tags)
+	if err != nil {
+		return fmt.Errorf("marshal tags: %w", err)
+	}
+	_, err = r.db.Exec(
+		`UPDATE todos SET title=?, description=?, completed=?, priority=?, status=?, urgency=?, tags=?, due_date=?, calendar_event_id=?, updated_at=?
 		 WHERE id=?`,
-		todo.Title, todo.Description, todo.Completed, todo.Priority,
+		todo.Title, todo.Description, todo.Completed, todo.Priority, todo.Status, todo.Urgency, string(tagsJSON),
 		todo.DueDate, todo.CalendarEventID, todo.UpdatedAt, todo.ID,
 	)
 	return err
@@ -116,14 +142,14 @@ func (r *todoRepo) BulkUpdateCompleted(ids []string, completed bool) (int64, err
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 
-	args := make([]any, 0, len(ids)+2)
-	args = append(args, completed, time.Now().UTC())
+	args := make([]any, 0, len(ids)+3)
+	args = append(args, completed, statusFromCompleted(completed), time.Now().UTC())
 	for _, id := range ids {
 		args = append(args, id)
 	}
 
 	result, err := r.db.Exec(
-		fmt.Sprintf("UPDATE todos SET completed=?, updated_at=? WHERE id IN (%s)", placeholders),
+		fmt.Sprintf("UPDATE todos SET completed=?, status=?, updated_at=? WHERE id IN (%s)", placeholders),
 		args...,
 	)
 	if err != nil {
@@ -159,12 +185,25 @@ func buildTodoWhere(filters model.TodoFilters) (string, []any) {
 	var args []any
 
 	if filters.Completed != nil {
-		conditions = append(conditions, "completed = ?")
-		args = append(args, *filters.Completed)
+		if *filters.Completed {
+			conditions = append(conditions, "status = ?")
+			args = append(args, string(model.TodoStatusDone))
+		} else {
+			conditions = append(conditions, "status != ?")
+			args = append(args, string(model.TodoStatusDone))
+		}
 	}
-	if filters.Priority != nil {
-		conditions = append(conditions, "priority = ?")
-		args = append(args, string(*filters.Priority))
+	if filters.Status != nil {
+		conditions = append(conditions, "status = ?")
+		args = append(args, string(*filters.Status))
+	}
+	if filters.Urgency != nil {
+		conditions = append(conditions, "urgency = ?")
+		args = append(args, string(*filters.Urgency))
+	}
+	if filters.Tag != nil {
+		conditions = append(conditions, "tags LIKE ?")
+		args = append(args, fmt.Sprintf("%%%s%%", *filters.Tag))
 	}
 
 	if len(conditions) == 0 {
@@ -188,4 +227,11 @@ func buildOrderClause(params model.ListParams, allowed []string) string {
 	}
 
 	return fmt.Sprintf(" ORDER BY %s %s", sortField, order)
+}
+
+func statusFromCompleted(completed bool) string {
+	if completed {
+		return string(model.TodoStatusDone)
+	}
+	return string(model.TodoStatusActive)
 }

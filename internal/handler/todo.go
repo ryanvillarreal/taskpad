@@ -45,9 +45,20 @@ func (h *TodoHandler) list(w http.ResponseWriter, r *http.Request) {
 		}
 		filters.Completed = &b
 	}
+	if v := r.URL.Query().Get("status"); v != "" {
+		status := model.TodoStatus(v)
+		filters.Status = &status
+	}
 	if v := r.URL.Query().Get("priority"); v != "" {
-		p := model.Priority(v)
-		filters.Priority = &p
+		urgency := model.TodoUrgency(v)
+		filters.Urgency = &urgency
+	}
+	if v := r.URL.Query().Get("urgency"); v != "" {
+		urgency := model.TodoUrgency(v)
+		filters.Urgency = &urgency
+	}
+	if v := r.URL.Query().Get("tag"); v != "" {
+		filters.Tag = &v
 	}
 
 	result, err := h.svc.List(params, filters)

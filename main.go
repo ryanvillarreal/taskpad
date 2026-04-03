@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/rvillarreal/taskpad/internal/app"
 	"github.com/rvillarreal/taskpad/internal/calendar"
 	"github.com/rvillarreal/taskpad/internal/client"
+	"github.com/rvillarreal/taskpad/internal/config"
 	"github.com/rvillarreal/taskpad/internal/model"
 	"github.com/rvillarreal/taskpad/internal/nlp"
 	"github.com/rvillarreal/taskpad/internal/notes"
@@ -18,33 +19,64 @@ import (
 )
 
 var (
+	cfg        config.Config
 	apiClient  *client.Client
 	calService calendar.Service
 )
 
 func main() {
-	serverURL := os.Getenv("TASKPAD_URL")
-	if serverURL == "" {
-		serverURL = "http://localhost:8080"
-	}
-	apiClient = client.New(serverURL)
-
-	// Initialize CalDAV if configured.
+	cfg = config.Load()
+	apiClient = client.New(cfg.APIURL)
 	initCalendar()
 
 	root := &cobra.Command{
 		Use:   "taskpad",
-		Short: "A CLI for managing todos and notes",
+		Short: "A terminal-first taskpad for todos, notes, and server mode",
 	}
 
-	// --- Todo commands ---
+	root.AddCommand(newServerCommand())
+	root.AddCommand(newTodoCommands()...)
+	root.AddCommand(newTodayCommand())
+	root.AddCommand(newNoteCommand())
+	root.AddCommand(newConfigCommand())
+
+	if err := root.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func newServerCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "server",
+		Short: "Run the taskpad API server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return app.RunServer(cfg)
+		},
+	}
+}
+
+func newConfigCommand() *cobra.Command {
+	configCmd := &cobra.Command{Use: "config", Short: "Inspect config"}
+	configCmd.AddCommand(&cobra.Command{
+		Use:   "path",
+		Short: "Print the config file path",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println(config.ConfigPath())
+		},
+	})
+	return configCmd
+}
+
+func newTodoCommands() []*cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "add [title...]",
 		Short: "Add a new todo",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runAdd,
 	}
-	addCmd.Flags().StringP("priority", "p", "medium", "Priority: low, medium, high")
+	addCmd.Flags().StringP("urgency", "u", "normal", "Urgency: now, high, normal, low, backburner")
+	addCmd.Flags().String("status", "active", "Status: active, paused, done")
+	addCmd.Flags().StringSliceP("tag", "t", nil, "Tags (repeatable)")
 	addCmd.Flags().StringP("due", "d", "", "Due date (RFC3339, e.g. 2026-04-10T17:00:00Z)")
 	addCmd.Flags().Bool("no-sync", false, "Don't sync to calendar")
 
@@ -54,8 +86,10 @@ func main() {
 		RunE:  runList,
 	}
 	listCmd.Flags().BoolP("done", "d", false, "Show only completed todos")
-	listCmd.Flags().BoolP("pending", "p", false, "Show only pending todos")
-	listCmd.Flags().String("priority", "", "Filter by priority: low, medium, high")
+	listCmd.Flags().BoolP("pending", "p", false, "Show only non-completed todos")
+	listCmd.Flags().String("status", "", "Filter by status: active, paused, done")
+	listCmd.Flags().String("urgency", "", "Filter by urgency: now, high, normal, low, backburner")
+	listCmd.Flags().StringP("tag", "t", "", "Filter by tag")
 	listCmd.Flags().IntP("limit", "l", 20, "Number of results")
 
 	getCmd := &cobra.Command{
@@ -74,7 +108,7 @@ func main() {
 
 	undoneCmd := &cobra.Command{
 		Use:   "undone [id]",
-		Short: "Mark a todo as incomplete",
+		Short: "Mark a todo as active again",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runUndone,
 	}
@@ -87,7 +121,44 @@ func main() {
 	}
 	deleteCmd.Flags().Bool("no-sync", false, "Don't remove from calendar")
 
-	// --- Note commands ---
+	return []*cobra.Command{addCmd, listCmd, getCmd, doneCmd, undoneCmd, deleteCmd}
+}
+
+func newTodayCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "today",
+		Short: "Show active work that matters today",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := apiClient.ListTodos(map[string]string{
+				"status": "active",
+				"limit":  "200",
+				"sort":   "due_date",
+				"order":  "asc",
+			})
+			if err != nil {
+				return err
+			}
+
+			now := time.Now()
+			items := make([]model.Todo, 0)
+			for _, todo := range result.Data {
+				if includeInToday(todo, now) {
+					items = append(items, todo)
+				}
+			}
+
+			if len(items) == 0 {
+				fmt.Println("Nothing urgent for today.")
+				return nil
+			}
+
+			printTodoTable(items)
+			return nil
+		},
+	}
+}
+
+func newNoteCommand() *cobra.Command {
 	noteCmd := &cobra.Command{
 		Use:   "note",
 		Short: "Manage notes",
@@ -101,12 +172,12 @@ func main() {
 	}
 	noteAddCmd.Flags().StringP("content", "c", "", "Note content")
 	noteAddCmd.Flags().StringSliceP("tag", "t", nil, "Tags (repeatable)")
-	noteAddCmd.Flags().Bool("no-sync", false, "Don't write the note to a local Markdown directory")
-	noteAddCmd.Flags().String("dir", "", "Markdown notes directory (overrides TASKPAD_NOTES_DIR)")
+	noteAddCmd.Flags().Bool("no-sync", false, "Don't write the note to the local Markdown directory")
+	noteAddCmd.Flags().String("dir", "", "Markdown notes directory override")
 
 	noteListCmd := &cobra.Command{
 		Use:   "list",
-		Short: "List notes",
+		Short: "List notes from the API",
 		RunE:  runNoteList,
 	}
 	noteListCmd.Flags().StringP("tag", "t", "", "Filter by tag")
@@ -115,7 +186,7 @@ func main() {
 
 	noteGetCmd := &cobra.Command{
 		Use:   "get [id]",
-		Short: "Get a note by ID",
+		Short: "Get a note by ID from the API",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runNoteGet,
 	}
@@ -127,56 +198,71 @@ func main() {
 		RunE:  runNoteDelete,
 	}
 	noteDeleteCmd.Flags().Bool("no-sync", false, "Don't remove the synced local Markdown note")
-	noteDeleteCmd.Flags().String("dir", "", "Markdown notes directory (overrides TASKPAD_NOTES_DIR)")
+	noteDeleteCmd.Flags().String("dir", "", "Markdown notes directory override")
 
-	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteGetCmd, noteDeleteCmd)
-	root.AddCommand(addCmd, listCmd, getCmd, doneCmd, undoneCmd, deleteCmd, noteCmd)
-
-	if err := root.Execute(); err != nil {
-		os.Exit(1)
+	noteSearchCmd := &cobra.Command{
+		Use:   "search [query...]",
+		Short: "Search local Markdown notes",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runNoteSearch,
 	}
-}
+	noteSearchCmd.Flags().IntP("limit", "l", 10, "Maximum results")
+	noteSearchCmd.Flags().String("dir", "", "Markdown notes directory override")
 
-// --- Todo handlers ---
+	noteOpenCmd := &cobra.Command{
+		Use:   "open [query...]",
+		Short: "Open the best matching local note in $EDITOR",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runNoteOpen,
+	}
+	noteOpenCmd.Flags().String("dir", "", "Markdown notes directory override")
+
+	noteViewCmd := &cobra.Command{
+		Use:   "view [query...]",
+		Short: "Print a local note or one heading section to the terminal",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runNoteView,
+	}
+	noteViewCmd.Flags().String("dir", "", "Markdown notes directory override")
+	noteViewCmd.Flags().String("heading", "", "Heading to extract from the note")
+
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteGetCmd, noteDeleteCmd, noteSearchCmd, noteOpenCmd, noteViewCmd)
+	return noteCmd
+}
 
 func runAdd(cmd *cobra.Command, args []string) error {
 	title := strings.Join(args, " ")
-	priority, _ := cmd.Flags().GetString("priority")
+	urgency, _ := cmd.Flags().GetString("urgency")
+	status, _ := cmd.Flags().GetString("status")
+	tags, _ := cmd.Flags().GetStringSlice("tag")
 	due, _ := cmd.Flags().GetString("due")
 	noSync, _ := cmd.Flags().GetBool("no-sync")
 
-	// Try to extract a date from the title via NLP if no explicit --due flag.
 	var parsedDue *time.Time
 	if due == "" {
 		if result := nlp.ExtractDate(title, time.Now()); result != nil {
 			parsedDue = &result.Time
 			title = nlp.StripDate(title, result)
-			dueStr := result.Time.Format(time.RFC3339)
-			due = dueStr
+			due = result.Time.Format(time.RFC3339)
 			fmt.Printf("Detected date: %s\n", result.Time.Format("Mon Jan 2, 2006 3:04 PM"))
 		}
-	} else {
-		t, err := time.Parse(time.RFC3339, due)
-		if err == nil {
-			parsedDue = &t
-		}
+	} else if t, err := time.Parse(time.RFC3339, due); err == nil {
+		parsedDue = &t
 	}
 
-	req := model.CreateTodoRequest{
-		Title:    title,
-		Priority: model.Priority(priority),
-	}
-	if due != "" {
-		req.DueDate = &due
-	}
-
-	todo, err := apiClient.CreateTodo(req)
+	todo, err := apiClient.CreateTodo(model.CreateTodoRequest{
+		Title:   title,
+		Status:  model.TodoStatus(status),
+		Urgency: model.TodoUrgency(urgency),
+		Tags:    tags,
+		DueDate: optionalString(due),
+	})
 	if err != nil {
 		return err
 	}
+
 	fmt.Printf("Created: %s\n  ID: %s\n", todo.Title, todo.ID)
 
-	// Sync to calendar if enabled and there's a due date.
 	if !noSync && calService != nil && parsedDue != nil {
 		eventID, err := calService.CreateEvent(context.Background(), calendar.Event{
 			Title:   todo.Title,
@@ -185,7 +271,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			fmt.Printf("  Warning: calendar sync failed: %v\n", err)
 		} else {
-			// Update todo with the calendar event ID.
 			_, updateErr := apiClient.UpdateTodo(todo.ID, model.UpdateTodoRequest{
 				CalendarEventID: &eventID,
 			})
@@ -207,8 +292,14 @@ func runList(cmd *cobra.Command, args []string) error {
 	if pending, _ := cmd.Flags().GetBool("pending"); pending {
 		params["completed"] = "false"
 	}
-	if p, _ := cmd.Flags().GetString("priority"); p != "" {
-		params["priority"] = p
+	if status, _ := cmd.Flags().GetString("status"); status != "" {
+		params["status"] = status
+	}
+	if urgency, _ := cmd.Flags().GetString("urgency"); urgency != "" {
+		params["urgency"] = urgency
+	}
+	if tag, _ := cmd.Flags().GetString("tag"); tag != "" {
+		params["tag"] = tag
 	}
 	if l, _ := cmd.Flags().GetInt("limit"); l > 0 {
 		params["limit"] = fmt.Sprintf("%d", l)
@@ -218,22 +309,11 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
 	if len(result.Data) == 0 {
 		fmt.Println("No todos found.")
 		return nil
 	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "STATUS\tPRIORITY\tDUE\tTITLE\tID\n")
-	for _, t := range result.Data {
-		status := "[ ]"
-		if t.Completed {
-			status = "[x]"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", status, t.Priority, formatDueDate(t.DueDate), t.Title, shortID(t.ID))
-	}
-	w.Flush()
+	printTodoTable(result.Data)
 	fmt.Printf("\nShowing %d of %d todos\n", len(result.Data), result.Total)
 	return nil
 }
@@ -267,8 +347,6 @@ func runUndone(cmd *cobra.Command, args []string) error {
 
 func runDelete(cmd *cobra.Command, args []string) error {
 	noSync, _ := cmd.Flags().GetBool("no-sync")
-
-	// If calendar sync is enabled, fetch the todo first to get the event ID.
 	if !noSync && calService != nil {
 		todo, err := apiClient.GetTodo(args[0])
 		if err == nil && todo.CalendarEventID != "" {
@@ -277,7 +355,6 @@ func runDelete(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-
 	if err := apiClient.DeleteTodo(args[0]); err != nil {
 		return err
 	}
@@ -285,14 +362,11 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// --- Note handlers ---
-
 func runNoteAdd(cmd *cobra.Command, args []string) error {
 	title := strings.Join(args, " ")
 	content, _ := cmd.Flags().GetString("content")
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 	noSync, _ := cmd.Flags().GetBool("no-sync")
-
 	if tags == nil {
 		tags = []string{}
 	}
@@ -339,7 +413,6 @@ func runNoteList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
 	if len(result.Data) == 0 {
 		fmt.Println("No notes found.")
 		return nil
@@ -391,17 +464,91 @@ func runNoteDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// --- Display helpers ---
+func runNoteSearch(cmd *cobra.Command, args []string) error {
+	dir, err := resolveNotesDir(cmd)
+	if err != nil {
+		return err
+	}
+	query := strings.Join(args, " ")
+	limit, _ := cmd.Flags().GetInt("limit")
+	results, err := notes.Search(dir, query, limit)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		fmt.Println("No local note matches found.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "TITLE\tSNIPPET\tPATH\n")
+	for _, result := range results {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", result.Title, result.Snippet, result.Path)
+	}
+	w.Flush()
+	return nil
+}
+
+func runNoteOpen(cmd *cobra.Command, args []string) error {
+	dir, err := resolveNotesDir(cmd)
+	if err != nil {
+		return err
+	}
+	results, err := notes.Search(dir, strings.Join(args, " "), 1)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		return fmt.Errorf("no local note matches found")
+	}
+	if strings.TrimSpace(cfg.Editor) == "" {
+		return fmt.Errorf("$EDITOR is not set")
+	}
+	return notes.OpenInEditor(cfg.Editor, results[0].Path)
+}
+
+func runNoteView(cmd *cobra.Command, args []string) error {
+	dir, err := resolveNotesDir(cmd)
+	if err != nil {
+		return err
+	}
+	results, err := notes.Search(dir, strings.Join(args, " "), 1)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		return fmt.Errorf("no local note matches found")
+	}
+	heading, _ := cmd.Flags().GetString("heading")
+	text, err := notes.View(results[0].Path, heading)
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
+	return nil
+}
+
+func printTodoTable(todos []model.Todo) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "STATUS\tURGENCY\tDUE\tTAGS\tTITLE\tID\n")
+	for _, t := range todos {
+		tags := "-"
+		if len(t.Tags) > 0 {
+			tags = strings.Join(t.Tags, ",")
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Status, t.Urgency, formatDueDate(t.DueDate), tags, t.Title, shortID(t.ID))
+	}
+	w.Flush()
+}
 
 func printTodo(t *model.Todo) {
-	status := "pending"
-	if t.Completed {
-		status = "completed"
-	}
 	fmt.Printf("Title:       %s\n", t.Title)
 	fmt.Printf("ID:          %s\n", t.ID)
-	fmt.Printf("Status:      %s\n", status)
-	fmt.Printf("Priority:    %s\n", t.Priority)
+	fmt.Printf("Status:      %s\n", t.Status)
+	fmt.Printf("Urgency:     %s\n", t.Urgency)
+	if len(t.Tags) > 0 {
+		fmt.Printf("Tags:        %s\n", strings.Join(t.Tags, ", "))
+	}
 	if t.Description != "" {
 		fmt.Printf("Description: %s\n", t.Description)
 	}
@@ -423,13 +570,6 @@ func printNote(n *model.Note) {
 	}
 }
 
-func shortID(id string) string {
-	if len(id) >= 8 {
-		return id[:8]
-	}
-	return id
-}
-
 func formatDueDate(due *time.Time) string {
 	if due == nil {
 		return "-"
@@ -437,36 +577,68 @@ func formatDueDate(due *time.Time) string {
 	return due.Local().Format("2006-01-02 15:04")
 }
 
-// --- Calendar setup ---
-
-func initCalendar() {
-	serverURL := os.Getenv("TASKPAD_CALDAV_URL")
-	if serverURL == "" {
-		return // CalDAV not configured, sync disabled.
+func shortID(id string) string {
+	if len(id) >= 8 {
+		return id[:8]
 	}
-
-	cfg := calendar.CalDAVConfig{
-		ServerURL:    serverURL,
-		Username:     os.Getenv("TASKPAD_CALDAV_USER"),
-		Password:     os.Getenv("TASKPAD_CALDAV_PASS"),
-		CalendarPath: os.Getenv("TASKPAD_CALDAV_CALENDAR"),
-	}
-
-	var err error
-	calService, err = calendar.NewCalDAV(cfg)
-	if err != nil {
-		log.Printf("Warning: CalDAV init failed: %v (calendar sync disabled)", err)
-		calService = nil
-	}
+	return id
 }
 
 func resolveNoteWriter(cmd *cobra.Command) (notes.Writer, error) {
-	notesDir, _ := cmd.Flags().GetString("dir")
-	if notesDir == "" {
-		notesDir = os.Getenv("TASKPAD_NOTES_DIR")
+	dir, err := resolveNotesDir(cmd)
+	if err != nil {
+		return nil, err
 	}
-	if notesDir == "" {
-		return nil, nil
+	return notes.NewMarkdownWriter(dir), nil
+}
+
+func resolveNotesDir(cmd *cobra.Command) (string, error) {
+	if cmd != nil {
+		if value, err := cmd.Flags().GetString("dir"); err == nil && value != "" {
+			return value, nil
+		}
 	}
-	return notes.NewMarkdownWriter(notesDir), nil
+	if strings.TrimSpace(cfg.NotesDir) == "" {
+		return "", fmt.Errorf("notes directory is not configured")
+	}
+	return cfg.NotesDir, nil
+}
+
+func includeInToday(todo model.Todo, now time.Time) bool {
+	if todo.Status != model.TodoStatusActive {
+		return false
+	}
+	if todo.Urgency == model.TodoUrgencyBackburner {
+		return false
+	}
+	if todo.DueDate != nil {
+		dueDay := todo.DueDate.Local().Format("2006-01-02")
+		nowDay := now.Local().Format("2006-01-02")
+		if dueDay <= nowDay {
+			return true
+		}
+	}
+	return todo.Urgency == model.TodoUrgencyNow || todo.Urgency == model.TodoUrgencyHigh
+}
+
+func optionalString(v string) *string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return &v
+}
+
+func initCalendar() {
+	if strings.TrimSpace(cfg.CalDAV.URL) == "" {
+		return
+	}
+	service, err := calendar.NewCalDAV(calendar.CalDAVConfig{
+		ServerURL:    cfg.CalDAV.URL,
+		Username:     cfg.CalDAV.Username,
+		Password:     cfg.CalDAV.Password,
+		CalendarPath: cfg.CalDAV.CalendarPath,
+	})
+	if err == nil {
+		calService = service
+	}
 }
