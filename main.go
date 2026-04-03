@@ -39,6 +39,7 @@ func main() {
 	root.AddCommand(newTodayCommand())
 	root.AddCommand(newNoteCommand())
 	root.AddCommand(newConfigCommand())
+	root.AddCommand(newCompletionCommand(root))
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -51,6 +52,27 @@ func newServerCommand() *cobra.Command {
 		Short: "Run the taskpad API server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return app.RunServer(cfg)
+		},
+	}
+}
+
+func newCompletionCommand(root *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:       "completion [bash|zsh|fish]",
+		Short:     "Generate a shell completion script",
+		ValidArgs: []string{"bash", "zsh", "fish"},
+		Args:      cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return root.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return root.GenZshCompletion(os.Stdout)
+			case "fish":
+				return root.GenFishCompletion(os.Stdout, true)
+			default:
+				return fmt.Errorf("unsupported shell: %s (use bash, zsh, or fish)", args[0])
+			}
 		},
 	}
 }
