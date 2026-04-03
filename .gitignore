@@ -1,0 +1,27 @@
+# Binaries
+taskpad
+server
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+*.out
+coverage.html
