@@ -1,0 +1,11 @@
+.git
+.gitignore
+*.db
+*.db-wal
+*.db-shm
+.env
+taskpad
+taskpad-server
+readme.md
+docker-compose.yml
+.dockerignore

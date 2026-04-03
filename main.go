@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -18,6 +20,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
 var (
 	cfg        config.Config
 	apiClient  *client.Client
@@ -26,7 +31,7 @@ var (
 
 func main() {
 	cfg = config.Load()
-	apiClient = client.New(cfg.APIURL)
+	apiClient = client.New(cfg.APIURL, cfg.APIKey)
 	initCalendar()
 
 	root := &cobra.Command{
@@ -51,7 +56,11 @@ func newServerCommand() *cobra.Command {
 		Use:   "server",
 		Short: "Run the taskpad API server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return app.RunServer(cfg)
+			sub, err := fs.Sub(migrationsFS, "migrations")
+			if err != nil {
+				return err
+			}
+			return app.RunServer(cfg, sub)
 		},
 	}
 }

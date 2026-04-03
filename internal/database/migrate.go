@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -35,6 +36,71 @@ func Open(dbPath string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 
 	return db, nil
+}
+
+// MigrateFS runs all pending SQL migrations from an fs.FS (e.g. an embedded filesystem).
+// The FS should be rooted at the migrations directory itself.
+func MigrateFS(db *sql.DB, migrations fs.FS) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version INTEGER PRIMARY KEY,
+			applied_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create schema_version table: %w", err)
+	}
+
+	var currentVersion int
+	if err := db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion); err != nil {
+		return fmt.Errorf("get current schema version: %w", err)
+	}
+
+	entries, err := fs.ReadDir(migrations, ".")
+	if err != nil {
+		return fmt.Errorf("read migrations: %w", err)
+	}
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		version, err := parseVersion(file)
+		if err != nil {
+			return fmt.Errorf("parse migration filename %s: %w", file, err)
+		}
+		if version <= currentVersion {
+			continue
+		}
+
+		content, err := fs.ReadFile(migrations, file)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", file, err)
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin transaction for %s: %w", file, err)
+		}
+		if _, err := tx.Exec(string(content)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("execute migration %s: %w", file, err)
+		}
+		if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("record migration %s: %w", file, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", file, err)
+		}
+		log.Printf("Applied migration: %s", file)
+	}
+	return nil
 }
 
 // Migrate runs all pending SQL migrations from the given directory.

@@ -8,6 +8,8 @@ import (
 
 type Config struct {
 	APIURL        string       `json:"api_url"`
+	APIKey        string       `json:"api_key"`
+	CORSOrigins   string       `json:"cors_origins"`
 	NotesDir      string       `json:"notes_dir"`
 	Editor        string       `json:"editor"`
 	MigrationsDir string       `json:"migrations_dir"`
@@ -37,6 +39,8 @@ func Load() Config {
 	}
 
 	overrideString(&cfg.APIURL, "TASKPAD_URL")
+	overrideString(&cfg.APIKey, "TASKPAD_API_KEY")
+	overrideString(&cfg.CORSOrigins, "TASKPAD_CORS_ORIGINS")
 	overrideString(&cfg.NotesDir, "TASKPAD_NOTES_DIR")
 	overrideString(&cfg.Editor, "TASKPAD_EDITOR")
 	if cfg.Editor == "" {

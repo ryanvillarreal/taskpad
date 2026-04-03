@@ -1,0 +1,30 @@
+services:
+  taskpad:
+    build: .
+    container_name: taskpad
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /data/taskpad.db
+    volumes:
+      - taskpad_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.taskpad.rule=Host(`${TASKPAD_DOMAIN}`)
+      - traefik.http.routers.taskpad.entrypoints=websecure
+      - traefik.http.routers.taskpad.tls.certresolver=letsencrypt
+      - traefik.http.services.taskpad.loadbalancer.server.port=8080
+
+volumes:
+  taskpad_data:
+
+networks:
+  traefik-public:
+    external: true

@@ -15,16 +15,16 @@ import (
 // Client is an HTTP client for the taskpad API.
 type Client struct {
 	baseURL    string
+	apiKey     string
 	httpClient *http.Client
 }
 
-// New creates a new taskpad API client.
-func New(baseURL string) *Client {
+// New creates a new taskpad API client. apiKey may be empty to disable auth.
+func New(baseURL, apiKey string) *Client {
 	return &Client{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -124,7 +124,12 @@ func (c *Client) get(path string, params map[string]string, dest any) error {
 		}
 		u += "?" + q.Encode()
 	}
-	resp, err := c.httpClient.Get(u)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return err
+	}
+	c.setAuth(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -149,6 +154,7 @@ func (c *Client) del(path string) error {
 	if err != nil {
 		return err
 	}
+	c.setAuth(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -171,6 +177,7 @@ func (c *Client) doJSON(method, path string, body any, dest any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -188,6 +195,12 @@ func (c *Client) handleResponse(resp *http.Response, dest any) error {
 		return json.NewDecoder(resp.Body).Decode(dest)
 	}
 	return nil
+}
+
+func (c *Client) setAuth(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 }
 
 func (c *Client) parseError(resp *http.Response) error {

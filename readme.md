@@ -227,6 +227,76 @@ taskpad completion bash > ~/.local/share/bash-completion/completions/taskpad
 taskpad completion fish > ~/.config/fish/completions/taskpad.fish
 ```
 
+## self-hosting
+
+Taskpad is designed to run as a single container behind Traefik with a persistent SQLite volume.
+
+### prerequisites
+
+- Docker and Docker Compose
+- A running Traefik instance with a `traefik-public` network and a `letsencrypt` cert resolver
+- A domain pointed at your server
+
+### setup
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+TASKPAD_DOMAIN=todo.example.com
+TASKPAD_API_KEY=$(openssl rand -hex 32)  # generate a strong key
+PORT=8080
+TASKPAD_CORS_ORIGINS=                    # leave empty for CLI-only use
+```
+
+Build and start:
+
+```bash
+docker compose up -d
+```
+
+Check it:
+
+```bash
+curl https://todo.example.com/health
+```
+
+### connecting the CLI to the remote server
+
+Set the API URL and key in your local config (`~/Library/Application Support/taskpad/config.json` on macOS):
+
+```json
+{
+  "api_url": "https://todo.example.com",
+  "api_key": "your-key-here"
+}
+```
+
+Or use environment variables:
+
+```bash
+export TASKPAD_URL=https://todo.example.com
+export TASKPAD_API_KEY=your-key-here
+```
+
+All CLI commands (`taskpad add`, `taskpad list`, `taskpad today`, `taskpad note ...`) will now talk to the remote server. Local note search and open still operate on your local `notes_dir`.
+
+### data
+
+SQLite lives at `/data/taskpad.db` inside the container, backed by a named Docker volume. To back it up:
+
+```bash
+docker compose exec taskpad cp /data/taskpad.db /data/taskpad.db.bak
+docker cp taskpad:/data/taskpad.db.bak ./taskpad.db.bak
+```
+
+### migrations
+
+Migrations are embedded in the binary. The server runs pending migrations automatically on startup. No external migration files are needed in the container.
+
 ## current direction
 
 The focus right now is staying in the terminal as much as possible:

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -17,14 +18,14 @@ import (
 	"github.com/rvillarreal/taskpad/internal/service"
 )
 
-func RunServer(cfg config.Config) error {
+func RunServer(cfg config.Config, migrations fs.FS) error {
 	db, err := database.Open(cfg.Server.DBPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	if err := database.Migrate(db, cfg.MigrationsDir); err != nil {
+	if err := database.MigrateFS(db, migrations); err != nil {
 		return err
 	}
 
@@ -44,7 +45,8 @@ func RunServer(cfg config.Config) error {
 	})
 
 	var h http.Handler = mux
-	h = middleware.CORS(h)
+	h = middleware.Auth(cfg.APIKey)(h)
+	h = middleware.CORS(cfg.CORSOrigins)(h)
 	h = middleware.Logging(h)
 	h = middleware.Recovery(h)
 
