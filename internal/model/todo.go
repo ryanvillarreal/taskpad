@@ -30,8 +30,9 @@ type CreateTodoRequest struct {
 }
 
 type UpdateTodoRequest struct {
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Priority    *Priority `json:"priority,omitempty"`
-	DueDate     *string   `json:"due_date,omitempty"`
+	Title           *string   `json:"title,omitempty"`
+	Description     *string   `json:"description,omitempty"`
+	Priority        *Priority `json:"priority,omitempty"`
+	DueDate         *string   `json:"due_date,omitempty"`
+	CalendarEventID *string   `json:"calendar_event_id,omitempty"`
 }

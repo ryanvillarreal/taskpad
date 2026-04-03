@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("not found")
-	ErrValidation     = errors.New("validation error")
+	ErrNotFound   = errors.New("not found")
+	ErrValidation = errors.New("validation error")
 )
 
 // TodoService defines the interface for todo business logic.
@@ -119,6 +119,9 @@ func (s *todoService) Update(id string, req model.UpdateTodoRequest) (*model.Tod
 			return nil, fmt.Errorf("%w: due_date must be valid RFC3339 format", ErrValidation)
 		}
 		todo.DueDate = &t
+	}
+	if req.CalendarEventID != nil {
+		todo.CalendarEventID = *req.CalendarEventID
 	}
 
 	if err := s.repo.Update(todo); err != nil {

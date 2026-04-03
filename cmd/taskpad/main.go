@@ -13,11 +13,12 @@ import (
 	"github.com/rvillarreal/taskpad/internal/client"
 	"github.com/rvillarreal/taskpad/internal/model"
 	"github.com/rvillarreal/taskpad/internal/nlp"
+	"github.com/rvillarreal/taskpad/internal/notes"
 	"github.com/spf13/cobra"
 )
 
 var (
-	apiClient *client.Client
+	apiClient  *client.Client
 	calService calendar.Service
 )
 
@@ -100,6 +101,8 @@ func main() {
 	}
 	noteAddCmd.Flags().StringP("content", "c", "", "Note content")
 	noteAddCmd.Flags().StringSliceP("tag", "t", nil, "Tags (repeatable)")
+	noteAddCmd.Flags().Bool("no-sync", false, "Don't write the note to a local Markdown directory")
+	noteAddCmd.Flags().String("dir", "", "Markdown notes directory (overrides TASKPAD_NOTES_DIR)")
 
 	noteListCmd := &cobra.Command{
 		Use:   "list",
@@ -123,6 +126,8 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runNoteDelete,
 	}
+	noteDeleteCmd.Flags().Bool("no-sync", false, "Don't remove the synced local Markdown note")
+	noteDeleteCmd.Flags().String("dir", "", "Markdown notes directory (overrides TASKPAD_NOTES_DIR)")
 
 	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteGetCmd, noteDeleteCmd)
 	root.AddCommand(addCmd, listCmd, getCmd, doneCmd, undoneCmd, deleteCmd, noteCmd)
@@ -181,8 +186,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  Warning: calendar sync failed: %v\n", err)
 		} else {
 			// Update todo with the calendar event ID.
-			todo.CalendarEventID = eventID
-			apiClient.UpdateTodo(todo.ID, model.UpdateTodoRequest{})
+			_, updateErr := apiClient.UpdateTodo(todo.ID, model.UpdateTodoRequest{
+				CalendarEventID: &eventID,
+			})
+			if updateErr != nil {
+				fmt.Printf("  Warning: failed to persist calendar event ID: %v\n", updateErr)
+			}
 			fmt.Printf("  Synced to calendar\n")
 		}
 	}
@@ -216,13 +225,13 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "STATUS\tPRIORITY\tTITLE\tID\n")
+	fmt.Fprintf(w, "STATUS\tPRIORITY\tDUE\tTITLE\tID\n")
 	for _, t := range result.Data {
 		status := "[ ]"
 		if t.Completed {
 			status = "[x]"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", status, t.Priority, t.Title, shortID(t.ID))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", status, t.Priority, formatDueDate(t.DueDate), t.Title, shortID(t.ID))
 	}
 	w.Flush()
 	fmt.Printf("\nShowing %d of %d todos\n", len(result.Data), result.Total)
@@ -282,6 +291,7 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 	title := strings.Join(args, " ")
 	content, _ := cmd.Flags().GetString("content")
 	tags, _ := cmd.Flags().GetStringSlice("tag")
+	noSync, _ := cmd.Flags().GetBool("no-sync")
 
 	if tags == nil {
 		tags = []string{}
@@ -296,6 +306,20 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Printf("Created note: %s\n  ID: %s\n", note.Title, note.ID)
+
+	if !noSync {
+		writer, err := resolveNoteWriter(cmd)
+		if err != nil {
+			fmt.Printf("  Warning: local note sync unavailable: %v\n", err)
+		} else if writer != nil {
+			path, err := writer.Write(note)
+			if err != nil {
+				fmt.Printf("  Warning: failed to write Markdown note: %v\n", err)
+			} else {
+				fmt.Printf("  Saved to: %s\n", path)
+			}
+		}
+	}
 	return nil
 }
 
@@ -345,8 +369,23 @@ func runNoteGet(cmd *cobra.Command, args []string) error {
 }
 
 func runNoteDelete(cmd *cobra.Command, args []string) error {
+	noSync, _ := cmd.Flags().GetBool("no-sync")
 	if err := apiClient.DeleteNote(args[0]); err != nil {
 		return err
+	}
+
+	if !noSync {
+		writer, err := resolveNoteWriter(cmd)
+		if err != nil {
+			fmt.Printf("Warning: local note sync unavailable: %v\n", err)
+		} else if writer != nil {
+			path, err := writer.DeleteByNoteID(args[0])
+			if err != nil {
+				fmt.Printf("Warning: failed to remove Markdown note: %v\n", err)
+			} else if path != "" {
+				fmt.Printf("Removed local note: %s\n", path)
+			}
+		}
 	}
 	fmt.Println("Deleted.")
 	return nil
@@ -391,6 +430,13 @@ func shortID(id string) string {
 	return id
 }
 
+func formatDueDate(due *time.Time) string {
+	if due == nil {
+		return "-"
+	}
+	return due.Local().Format("2006-01-02 15:04")
+}
+
 // --- Calendar setup ---
 
 func initCalendar() {
@@ -412,4 +458,15 @@ func initCalendar() {
 		log.Printf("Warning: CalDAV init failed: %v (calendar sync disabled)", err)
 		calService = nil
 	}
+}
+
+func resolveNoteWriter(cmd *cobra.Command) (notes.Writer, error) {
+	notesDir, _ := cmd.Flags().GetString("dir")
+	if notesDir == "" {
+		notesDir = os.Getenv("TASKPAD_NOTES_DIR")
+	}
+	if notesDir == "" {
+		return nil, nil
+	}
+	return notes.NewMarkdownWriter(notesDir), nil
 }
