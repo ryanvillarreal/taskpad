@@ -1,6 +1,7 @@
-# Binaries
-taskpad
-server
+# Binaries (root-level only)
+/taskpad
+/server
+/taskpad-server
 *.exe
 *.dll
 *.so
