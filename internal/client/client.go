@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,25 @@ import (
 
 	"github.com/rvillarreal/taskpad/internal/model"
 )
+
+// APIError is returned when the server responds with an HTTP error status.
+type APIError struct {
+	Code    int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("HTTP %d", e.Code)
+}
+
+// IsNotFound reports whether err is a 404 API error.
+func IsNotFound(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.Code == 404
+}
 
 // Client is an HTTP client for the taskpad API.
 type Client struct {
@@ -73,6 +93,24 @@ func (c *Client) CompleteTodo(id string, completed bool) (*model.Todo, error) {
 		return nil, err
 	}
 	return &todo, nil
+}
+
+// --- Daily Notes ---
+
+func (c *Client) GetDailyNote(date string) (*model.DailyNote, error) {
+	var n model.DailyNote
+	if err := c.get("/api/v1/notes/daily/"+date, nil, &n); err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+func (c *Client) UpsertDailyNote(date, content string) (*model.DailyNote, error) {
+	var n model.DailyNote
+	if err := c.put("/api/v1/notes/daily/"+date, model.UpsertDailyNoteRequest{Content: content}, &n); err != nil {
+		return nil, err
+	}
+	return &n, nil
 }
 
 // --- Notes ---
@@ -209,8 +247,11 @@ func (c *Client) parseError(resp *http.Response) error {
 		Error string `json:"error"`
 		Code  int    `json:"code"`
 	}
+	msg := ""
 	if json.Unmarshal(body, &apiErr) == nil && apiErr.Error != "" {
-		return fmt.Errorf("%s", apiErr.Error)
+		msg = apiErr.Error
+	} else {
+		msg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	return &APIError{Code: resp.StatusCode, Message: msg}
 }

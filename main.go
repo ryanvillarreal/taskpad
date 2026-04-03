@@ -257,7 +257,18 @@ func newNoteCommand() *cobra.Command {
 	noteViewCmd.Flags().String("dir", "", "Markdown notes directory override")
 	noteViewCmd.Flags().String("heading", "", "Heading to extract from the note")
 
-	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteGetCmd, noteDeleteCmd, noteSearchCmd, noteOpenCmd, noteViewCmd)
+	noteDayCmd := &cobra.Command{
+		Use:   "day [date]",
+		Short: "Open a daily note (today by default); syncs with the API",
+		RunE:  runNoteDay,
+	}
+	noteDayCmd.Flags().Bool("view", false, "Print to terminal without opening editor")
+	noteDayCmd.Flags().Bool("pull", false, "Pull from API to local disk only")
+	noteDayCmd.Flags().Bool("push", false, "Push local file to API only")
+	noteDayCmd.Flags().Bool("no-sync", false, "Work locally without API sync")
+	noteDayCmd.Flags().String("dir", "", "Markdown notes directory override")
+
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteGetCmd, noteDeleteCmd, noteSearchCmd, noteOpenCmd, noteViewCmd, noteDayCmd)
 	return noteCmd
 }
 
@@ -557,6 +568,126 @@ func runNoteView(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Print(text)
 	return nil
+}
+
+func runNoteDay(cmd *cobra.Command, args []string) error {
+	dir, err := resolveNotesDir(cmd)
+	if err != nil {
+		return err
+	}
+
+	date, err := resolveDate(args)
+	if err != nil {
+		return err
+	}
+
+	noSync, _ := cmd.Flags().GetBool("no-sync")
+	viewOnly, _ := cmd.Flags().GetBool("view")
+	pullOnly, _ := cmd.Flags().GetBool("pull")
+	pushOnly, _ := cmd.Flags().GetBool("push")
+
+	// -- push only: read local file, push body to API --
+	if pushOnly {
+		path := notes.DailyNoteFilePath(dir, date)
+		body, err := notes.ParseDailyNoteBody(path)
+		if err != nil {
+			return fmt.Errorf("read local note: %w", err)
+		}
+		if _, err := apiClient.UpsertDailyNote(date, body); err != nil {
+			return fmt.Errorf("push to API: %w", err)
+		}
+		// Refresh edited timestamp on disk.
+		if _, err := notes.WriteLocalDailyNote(dir, date, body); err != nil {
+			fmt.Printf("Warning: failed to update local file: %v\n", err)
+		}
+		fmt.Printf("Pushed daily note for %s\n", date)
+		return nil
+	}
+
+	// -- pull from API (unless no-sync) --
+	if !noSync {
+		n, err := apiClient.GetDailyNote(date)
+		if err != nil && !client.IsNotFound(err) {
+			return fmt.Errorf("pull from API: %w", err)
+		}
+		content := ""
+		if n != nil {
+			content = n.Content
+		}
+		if _, err := notes.WriteLocalDailyNote(dir, date, content); err != nil {
+			fmt.Printf("Warning: failed to write local note: %v\n", err)
+		}
+		if pullOnly {
+			fmt.Printf("Pulled daily note for %s\n", date)
+			return nil
+		}
+	} else {
+		// Ensure the file exists locally even without sync.
+		path := notes.DailyNoteFilePath(dir, date)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			if _, err := notes.WriteLocalDailyNote(dir, date, ""); err != nil {
+				return fmt.Errorf("create local note: %w", err)
+			}
+		}
+	}
+
+	path := notes.DailyNoteFilePath(dir, date)
+
+	// -- view only: print to terminal --
+	if viewOnly {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read local note: %w", err)
+		}
+		fmt.Print(string(raw))
+		return nil
+	}
+
+	// -- open in editor --
+	if strings.TrimSpace(cfg.Editor) == "" {
+		return fmt.Errorf("$EDITOR is not set")
+	}
+	if err := notes.OpenInEditor(cfg.Editor, path); err != nil {
+		return err
+	}
+
+	// -- push after editor closes (unless no-sync) --
+	if !noSync {
+		body, err := notes.ParseDailyNoteBody(path)
+		if err != nil {
+			return fmt.Errorf("read note after edit: %w", err)
+		}
+		if _, err := apiClient.UpsertDailyNote(date, body); err != nil {
+			fmt.Printf("Warning: failed to push to API: %v\n", err)
+		} else {
+			// Refresh edited timestamp.
+			_, _ = notes.WriteLocalDailyNote(dir, date, body)
+			fmt.Printf("Synced to API.\n")
+		}
+	}
+	return nil
+}
+
+// resolveDate parses a date from CLI args. No args returns today.
+// Accepts YYYY-MM-DD or natural language (yesterday, last week, etc.).
+func resolveDate(args []string) (string, error) {
+	now := time.Now()
+	if len(args) == 0 {
+		return now.Local().Format("2006-01-02"), nil
+	}
+	input := strings.Join(args, " ")
+
+	// ISO date shortcut.
+	if _, err := time.Parse("2006-01-02", input); err == nil {
+		return input, nil
+	}
+
+	// Natural language via NLP.
+	if result := nlp.ExtractDate(input, now); result != nil {
+		return result.Time.Local().Format("2006-01-02"), nil
+	}
+
+	return "", fmt.Errorf("unrecognised date %q — use YYYY-MM-DD, 'yesterday', or 'last week'", input)
 }
 
 func printTodoTable(todos []model.Todo) {

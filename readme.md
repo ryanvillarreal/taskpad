@@ -190,6 +190,42 @@ taskpad note view [query...]
 
 `note open` requires `$EDITOR` or `editor` in the config.
 
+### daily notes
+
+```
+taskpad note day              open today's daily note
+taskpad note day yesterday    open yesterday's note
+taskpad note day last week    open the note from 7 days ago
+taskpad note day 2026-04-01   open a specific date
+  --view      print to terminal without opening editor
+  --pull      pull from API to disk only
+  --push      push local file to API only
+  --no-sync   work locally, skip API entirely
+  --dir       override the notes directory for this command
+```
+
+Default flow when you run `taskpad note day`:
+1. Pull the note from the API (overwrites local — API is source of truth)
+2. Open in `$EDITOR`
+3. On editor close, push the body back to the API and update the `edited` timestamp
+
+Daily notes are stored separately from reference notes at `{notes_dir}/daily/YYYY-MM-DD.md`.
+
+File format:
+
+```markdown
+---
+added: 2026-04-03
+edited: 2026-04-03T17:12:00Z
+---
+
+# Daily Note - April 3, 2026
+
+note text here
+```
+
+`added` is set on creation and never changes. `edited` is updated on every sync. The frontmatter is managed by taskpad — write your notes below the heading.
+
 ### misc
 
 ```

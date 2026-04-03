@@ -31,13 +31,17 @@ func RunServer(cfg config.Config, migrations fs.FS) error {
 
 	todoRepo := repository.NewTodoRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
+	dailyNoteRepo := repository.NewDailyNoteRepository(db)
 	todoSvc := service.NewTodoService(todoRepo)
 	noteSvc := service.NewNoteService(noteRepo)
+	dailyNoteSvc := service.NewDailyNoteService(dailyNoteRepo)
 	todoHandler := handler.NewTodoHandler(todoSvc)
 	noteHandler := handler.NewNoteHandler(noteSvc)
+	dailyNoteHandler := handler.NewDailyNoteHandler(dailyNoteSvc)
 
 	mux := http.NewServeMux()
 	todoHandler.RegisterRoutes(mux)
+	dailyNoteHandler.RegisterRoutes(mux) // must be before noteHandler to win over /notes/{id}
 	noteHandler.RegisterRoutes(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
