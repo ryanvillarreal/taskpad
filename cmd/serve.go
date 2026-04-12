@@ -1,6 +1,3 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -17,6 +14,7 @@ var serveCmd = &cobra.Command{
 	},
 }
 
+// is this even needed?
 func init() {
 	rootCmd.AddCommand(serveCmd)
 }

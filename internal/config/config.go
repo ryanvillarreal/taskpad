@@ -47,6 +47,7 @@ func Load() Config {
 func configPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
+
 		return ""
 	}
 	return filepath.Join(dir, "taskpad", "config.json")

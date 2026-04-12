@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"github.com/rvillarreal/taskpad/internal/config"
-
+	"github.com/ryanvillarreal/taskpad/internal/config"
+	"github.com/ryanvillarreal/taskpad/internal/logging"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"os"
 )
 
@@ -14,14 +15,17 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	err := rootCmd.Execute()
-	// as quickly as possible check args
+
+	// start logging before anything else
+	logs.Start()
+
+	// now that logging is on we have visibility
+	// Check for verbose flag to increase logging
 	if err != nil {
+		slog.Error("Ruh Roh Raggy:", err)
 		os.Exit(1)
 	}
 
-	cfg = config.Load()
+	cfg := config.Load()
+	slog.Info("%s", cfg)
 }
-
-// if needed later
-// func init() {
-// }
