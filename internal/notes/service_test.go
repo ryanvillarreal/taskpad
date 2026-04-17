@@ -26,7 +26,7 @@ func TestService_Save_FreshNote(t *testing.T) {
 	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	s := newTestService(t, now)
 
-	n, err := s.Save("hello world\n")
+	n, err := s.Save("04.16.2026", "hello world\n")
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -47,12 +47,12 @@ func TestService_Save_PreservesCreatedAtOnSecondSave(t *testing.T) {
 
 	store := NewStore(t.TempDir())
 	s := NewServiceWithClock(store, fixedClock(first))
-	if _, err := s.Save("first body\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "first body\n"); err != nil {
 		t.Fatal(err)
 	}
 
 	s.clock = fixedClock(second)
-	n, err := s.Save("second body\n")
+	n, err := s.Save("04.16.2026", "second body\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +68,10 @@ func TestService_Save_MergesFrontmatter_PreservesExisting(t *testing.T) {
 	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	s := newTestService(t, now)
 
-	if _, err := s.Save("---\ntags: [work]\n---\n\nfirst\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "---\ntags: [work]\n---\n\nfirst\n"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Save("just new body, no frontmatter\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "just new body, no frontmatter\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,10 +93,10 @@ func TestService_Save_NewFrontmatterOverridesExisting(t *testing.T) {
 	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	s := newTestService(t, now)
 
-	if _, err := s.Save("---\ntags: [a]\n---\n\nfirst\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "---\ntags: [a]\n---\n\nfirst\n"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Save("---\ntags: [b]\n---\n\nsecond\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "---\ntags: [b]\n---\n\nsecond\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestService_Delete(t *testing.T) {
 	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	s := newTestService(t, now)
 
-	if _, err := s.Save("body\n"); err != nil {
+	if _, err := s.Save("04.16.2026", "body\n"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Delete("04.16.2026"); err != nil {

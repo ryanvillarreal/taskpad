@@ -53,6 +53,25 @@ func (s *Store) Delete(id string) error {
 	return nil
 }
 
+func (s *Store) List() ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(name, ".md"))
+	}
+	return ids, nil
+}
+
 func (s *Store) Count() (int, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {

@@ -45,8 +45,8 @@ func (c *Client) Get(id string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (c *Client) Save(body []byte) error {
-	url := c.baseURL + "/notes"
+func (c *Client) Save(id string, body []byte) error {
+	url := c.baseURL + "/notes/" + id
 	slog.Debug("client save", "url", url, "bytes", len(body))
 
 	resp, err := c.http.Post(url, "text/markdown", bytes.NewReader(body))

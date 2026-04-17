@@ -20,7 +20,7 @@ func init() {
 
 	server.Register(
 		server.Route{Pattern: "GET /notes", Handler: defaultHandler.count},
-		server.Route{Pattern: "POST /notes", Handler: defaultHandler.create},
+		server.Route{Pattern: "POST /notes/{id}", Handler: defaultHandler.save},
 		server.Route{Pattern: "GET /notes/{id}", Handler: defaultHandler.get},
 		server.Route{Pattern: "DELETE /notes/{id}", Handler: defaultHandler.delete},
 	)
@@ -35,7 +35,8 @@ func (h *Handler) count(w http.ResponseWriter, r *http.Request) {
 	server.JSON(w, http.StatusOK, map[string]int{"count": n})
 }
 
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) save(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		server.Error(w, http.StatusBadRequest, "read body: "+err.Error())
@@ -43,7 +44,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	n, err := h.svc.Save(string(body))
+	n, err := h.svc.Save(id, string(body))
 	if err != nil {
 		server.Error(w, http.StatusInternalServerError, err.Error())
 		return

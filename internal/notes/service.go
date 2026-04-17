@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"sort"
 	"time"
 )
 
@@ -21,8 +22,7 @@ func (s *Service) Today() string {
 	return s.clock().Format("01.02.2006")
 }
 
-func (s *Service) Save(rawBody string) (*Note, error) {
-	id := s.Today()
+func (s *Service) Save(id, rawBody string) (*Note, error) {
 	now := s.clock().UTC()
 
 	incoming, err := parseNote(id, []byte(rawBody))
@@ -73,6 +73,22 @@ func (s *Service) Delete(id string) error {
 
 func (s *Service) Count() (int, error) {
 	return s.store.Count()
+}
+
+func (s *Service) List() ([]string, error) {
+	ids, err := s.store.List()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		ti, errI := time.Parse("01.02.2006", ids[i])
+		tj, errJ := time.Parse("01.02.2006", ids[j])
+		if errI != nil || errJ != nil {
+			return ids[i] > ids[j]
+		}
+		return ti.After(tj)
+	})
+	return ids, nil
 }
 
 func (s *Service) Raw(id string) ([]byte, error) {

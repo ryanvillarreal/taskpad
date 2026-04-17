@@ -17,11 +17,12 @@ import (
 var ErrMissingNote = errors.New("note does not exist (pass --new to create)")
 
 func NormalizeID(input string) (string, error) {
-	t, err := time.Parse("1.2.2006", input)
-	if err != nil {
-		return "", fmt.Errorf("invalid date %q (expected MM.DD.YYYY)", input)
+	for _, layout := range []string{"1.2.2006", "1.2.06"} {
+		if t, err := time.Parse(layout, input); err == nil {
+			return t.Format("01.02.2006"), nil
+		}
 	}
-	return t.Format("01.02.2006"), nil
+	return "", fmt.Errorf("invalid date %q (expected MM.DD.YYYY or MM.DD.YY)", input)
 }
 
 func EditNote(rawID string, allowCreate bool) error {
@@ -66,7 +67,7 @@ func EditNote(rawID string, allowCreate bool) error {
 		return nil
 	}
 
-	if err := saveBody(c, svc, newBody); err != nil {
+	if err := saveBody(c, svc, id, newBody); err != nil {
 		return err
 	}
 	slog.Info("note saved", "id", id, "bytes", len(newBody))
@@ -103,8 +104,8 @@ func loadBody(c *Client, svc *notes.Service, id string, allowCreate bool) ([]byt
 	return raw, "filesystem", nil
 }
 
-func saveBody(c *Client, svc *notes.Service, body []byte) error {
-	err := c.Save(body)
+func saveBody(c *Client, svc *notes.Service, id string, body []byte) error {
+	err := c.Save(id, body)
 	switch err {
 	case nil:
 		return nil
@@ -113,8 +114,41 @@ func saveBody(c *Client, svc *notes.Service, body []byte) error {
 	default:
 		return err
 	}
-	_, err = svc.Save(string(body))
+	_, err = svc.Save(id, string(body))
 	return err
+}
+
+func DeleteNote(rawID string) error {
+	id, err := NormalizeID(rawID)
+	if err != nil {
+		return err
+	}
+	cfg := config.Load()
+	svc := notes.NewService(notes.NewStore(cfg.NotesDir))
+	c := New(cfg.BaseURL)
+
+	slog.Debug("deleting note", "id", id)
+
+	switch err := c.Delete(id); err {
+	case nil:
+		slog.Info("note deleted", "id", id, "source", "server")
+		return nil
+	case ErrNotFound:
+		return ErrMissingNote
+	case ErrUnreachable:
+		slog.Warn("server unreachable, deleting from local filesystem")
+	default:
+		return err
+	}
+
+	if err := svc.Delete(id); err != nil {
+		if err == notes.ErrNotFound {
+			return ErrMissingNote
+		}
+		return err
+	}
+	slog.Info("note deleted", "id", id, "source", "filesystem")
+	return nil
 }
 
 func writeTmp(id string, body []byte) (string, error) {
