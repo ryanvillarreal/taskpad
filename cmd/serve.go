@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	_ "github.com/ryanvillarreal/taskpad/internal/notes" // registers note routes
 	"github.com/ryanvillarreal/taskpad/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,7 @@ var serveCmd = &cobra.Command{
 	},
 }
 
-// is this even needed?
+// use the init func to register itself
 func init() {
 	rootCmd.AddCommand(serveCmd)
 }

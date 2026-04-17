@@ -13,11 +13,19 @@ var rootCmd = &cobra.Command{
 	Short: "note taking app for the lols",
 }
 
-func Execute() {
-	err := rootCmd.Execute()
+/*
+exposed:
+Execute() - main entry point into Cobra
 
+init() - start logging first
+*/
+func init() {
 	// start logging before anything else
 	logs.Start()
+}
+
+func Execute() {
+	err := rootCmd.Execute()
 
 	// now that logging is on we have visibility
 	// Check for verbose flag to increase logging
