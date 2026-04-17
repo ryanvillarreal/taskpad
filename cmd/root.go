@@ -7,6 +7,7 @@ import (
 	"github.com/ryanvillarreal/taskpad/internal/config"
 	logs "github.com/ryanvillarreal/taskpad/internal/logging"
 	notescmd "github.com/ryanvillarreal/taskpad/cmd/notes"
+	taskscmd "github.com/ryanvillarreal/taskpad/cmd/tasks"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +24,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
 	rootCmd.AddCommand(notescmd.NoteCmd)
+	rootCmd.AddCommand(taskscmd.TaskCmd)
 }
 
 func Execute() {

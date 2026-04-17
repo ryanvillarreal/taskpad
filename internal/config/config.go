@@ -7,11 +7,20 @@ import (
 )
 
 type Config struct {
-	BaseURL  string    `json:"base_url"`
-	Host     string    `json:"host"`
-	Port     string    `json:"port"`
-	NotesDir string    `json:"notes_dir"`
-	TLS      TLSConfig `json:"tls"`
+	BaseURL  string       `json:"base_url"`
+	Host     string       `json:"host"`
+	Port     string       `json:"port"`
+	NotesDir string       `json:"notes_dir"`
+	TasksDir string       `json:"tasks_dir"`
+	TLS      TLSConfig    `json:"tls"`
+	Notify   NotifyConfig `json:"notify"`
+}
+
+type NotifyConfig struct {
+	Backend       string `json:"backend"`
+	URL           string `json:"url"`
+	Topic         string `json:"topic"`
+	RepeatMinutes int    `json:"repeat_minutes"`
 }
 
 type TLSConfig struct {
@@ -39,7 +48,11 @@ func Load() Config {
 	if cfg.NotesDir == "" {
 		cfg.NotesDir = defaultNotesDir()
 	}
+	if cfg.TasksDir == "" {
+		cfg.TasksDir = defaultTasksDir(cfg.NotesDir)
+	}
 	_ = os.MkdirAll(cfg.NotesDir, 0o755)
+	_ = os.MkdirAll(cfg.TasksDir, 0o755)
 
 	return cfg
 }
@@ -56,17 +69,29 @@ func configPath() string {
 }
 
 func defaults() Config {
+	notesDir := defaultNotesDir()
 	return Config{
 		BaseURL:  "http://localhost:8080",
 		Host:     "",
 		Port:     "8080",
-		NotesDir: defaultNotesDir(),
+		NotesDir: notesDir,
+		TasksDir: defaultTasksDir(notesDir),
 		TLS: TLSConfig{
 			Enabled:  false,
 			CertFile: "",
 			KeyFile:  "",
 		},
+		Notify: NotifyConfig{
+			Backend:       "ntfy",
+			URL:           "https://ntfy.sh",
+			Topic:         "",
+			RepeatMinutes: 60,
+		},
 	}
+}
+
+func defaultTasksDir(notesDir string) string {
+	return filepath.Join(notesDir, "tasks")
 }
 
 func defaultNotesDir() string {
