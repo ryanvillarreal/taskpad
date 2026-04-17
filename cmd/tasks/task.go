@@ -13,8 +13,9 @@ import (
 var createTitle string
 
 var TaskCmd = &cobra.Command{
-	Use:   "task",
-	Short: "manage tasks and reminders",
+	Use:     "task",
+	Aliases: []string{"t"},
+	Short:   "manage tasks and reminders",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if createTitle != "" {
 			return createTask(createTitle)

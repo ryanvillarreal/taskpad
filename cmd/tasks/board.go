@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ryanvillarreal/taskpad/internal/config"
@@ -24,29 +25,36 @@ var (
 	colBase    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	colFocused = colBase.BorderForeground(lipgloss.Color("39"))
 
-	selStyle    = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("236")).Padding(0, 1)
-	normStyle   = lipgloss.NewStyle().Padding(0, 1)
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	selStyle     = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("236")).Padding(0, 1)
+	normStyle    = lipgloss.NewStyle().Padding(0, 1)
+	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	statusStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	overdueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	soonStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	soonStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	inputLabel   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 )
 
 type editorDoneMsg struct{ err error }
 
 type boardModel struct {
-	cols   [3][]*tasks.Task
-	col    int
-	row    int
-	svc    *tasks.Service
-	cfg    config.Config
-	width  int
-	status string
+	cols     [3][]*tasks.Task
+	col      int
+	row      int
+	svc      *tasks.Service
+	cfg      config.Config
+	width    int
+	status   string
+	creating bool
+	input    textinput.Model
 }
 
 func newBoard(svc *tasks.Service, cfg config.Config) boardModel {
-	m := boardModel{svc: svc, cfg: cfg, width: 120}
+	ti := textinput.New()
+	ti.Placeholder = "task title... (natural language dates work: 'pick up john tomorrow at 5pm')"
+	ti.CharLimit = 200
+
+	m := boardModel{svc: svc, cfg: cfg, width: 120, input: ti}
 	return m.reloaded()
 }
 
@@ -96,15 +104,64 @@ func (m boardModel) current() *tasks.Task {
 func (m boardModel) Init() tea.Cmd { return nil }
 
 func (m boardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.creating {
+		return m.updateCreate(msg)
+	}
+	return m.updateBoard(msg)
+}
+
+func (m boardModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.creating = false
+			m.input.Reset()
+			return m, nil
+		case "enter":
+			title := strings.TrimSpace(m.input.Value())
+			m.creating = false
+			m.input.Reset()
+			if title != "" {
+				t, err := m.svc.Create(title)
+				if err != nil {
+					m.status = "error: " + err.Error()
+				} else {
+					m.status = "created " + t.ID
+					m = m.reloaded()
+					m.col = 0
+					for i, active := range m.cols[0] {
+						if active.ID == t.ID {
+							m.row = i
+							break
+						}
+					}
+				}
+			}
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m boardModel) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.input.Width = m.width - 14
 
 	case tea.KeyMsg:
 		m.status = ""
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+		case "n":
+			m.creating = true
+			m.input.Width = m.width - 14
+			return m, m.input.Focus()
 		case "up", "k":
 			if m.row > 0 {
 				m.row--
@@ -146,6 +203,15 @@ func (m boardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m = m.reloaded()
 				}
 			}
+		case "d":
+			if t := m.current(); t != nil {
+				if err := m.svc.Delete(t.ID); err != nil {
+					m.status = "error: " + err.Error()
+				} else {
+					m.status = "deleted " + t.ID
+					m = m.reloaded()
+				}
+			}
 		case "enter":
 			if t := m.current(); t != nil {
 				path := filepath.Join(m.cfg.TasksDir, t.ID+".md")
@@ -181,12 +247,17 @@ func (m boardModel) View() string {
 		m.renderCol(2, "closed", hClosed, colW),
 	)
 
-	help := helpStyle.Render("↑↓/jk  ←→/hl columns  enter edit  c close  p pause  a activate  q quit")
-	if m.status != "" {
-		help = statusStyle.Render(m.status) + "  " + help
+	var bottom string
+	if m.creating {
+		bottom = inputLabel.Render("new task: ") + m.input.View()
+	} else {
+		bottom = helpStyle.Render("↑↓/jk  ←→/hl columns  n new  enter edit  c close  p pause  a activate  d delete  q quit")
+		if m.status != "" {
+			bottom = statusStyle.Render(m.status) + "  " + bottom
+		}
 	}
 
-	return board + "\n" + help
+	return board + "\n" + bottom
 }
 
 func (m boardModel) renderCol(idx int, label string, hs lipgloss.Style, width int) string {

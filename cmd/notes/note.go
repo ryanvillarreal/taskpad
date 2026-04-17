@@ -11,8 +11,9 @@ import (
 var noteNew bool
 
 var NoteCmd = &cobra.Command{
-	Use:   "note [id]",
-	Short: "open a note in $EDITOR and sync on save (defaults to today)",
+	Use:     "note [id]",
+	Aliases: []string{"n"},
+	Short:   "open a note in $EDITOR and sync on save (defaults to today)",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := ""
