@@ -20,10 +20,11 @@ overrideString() - Gets env variables first?
 */
 
 type Config struct {
-	BaseURL string    `json:"base_url"`
-	Host    string    `json:"host"`
-	Port    string    `json:"port"`
-	TLS     TLSConfig `json:"tls"`
+	BaseURL  string    `json:"base_url"`
+	Host     string    `json:"host"`
+	Port     string    `json:"port"`
+	NotesDir string    `json:"notes_dir"`
+	TLS      TLSConfig `json:"tls"`
 }
 
 type TLSConfig struct {
@@ -47,6 +48,12 @@ func Load() Config {
 			_ = writeDefaults(cp, cfg)
 		}
 	}
+
+	if cfg.NotesDir == "" {
+		cfg.NotesDir = defaultNotesDir()
+	}
+	_ = os.MkdirAll(cfg.NotesDir, 0o755)
+
 	return cfg
 }
 
@@ -61,18 +68,30 @@ func configPath() string {
 	return filepath.Join(dir, "taskpad", "config.json")
 }
 
-// auto-generate sane defaults
 func defaults() Config {
 	return Config{
-		BaseURL: "http://localhost:8080",
-		Host:    "",
-		Port:    "8080",
+		BaseURL:  "http://localhost:8080",
+		Host:     "",
+		Port:     "8080",
+		NotesDir: defaultNotesDir(),
 		TLS: TLSConfig{
 			Enabled:  false,
 			CertFile: "",
 			KeyFile:  "",
 		},
 	}
+}
+
+func defaultNotesDir() string {
+	dir := os.Getenv("XDG_DATA_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dir, "taskpad", "notes")
 }
 
 func overrideString(target *string, envKey string) {

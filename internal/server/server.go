@@ -18,23 +18,30 @@ import (
 exposed:
 RunServer() -
 Register() - called from handler packages' init() to add routes
+UseMiddleware() - called from packages' init() to wrap the server mux
 TODO StopServer()
 TODO PauseServer()
 TODO RestartServer()
 */
 
-// Route describes a single HTTP route to be mounted on the server mux.
 type Route struct {
-	Pattern string // e.g. "GET /note/{id}"
+	Pattern string
 	Handler http.HandlerFunc
 }
 
-// routes is the package-level registry populated by Register.
-var routes []Route
+type Middleware func(http.Handler) http.Handler
 
-// Register adds routes to the server. Call from init() in handler packages.
+var (
+	routes      []Route
+	middlewares []Middleware
+)
+
 func Register(rs ...Route) {
 	routes = append(routes, rs...)
+}
+
+func UseMiddleware(mw ...Middleware) {
+	middlewares = append(middlewares, mw...)
 }
 
 func RunServer() error {
@@ -43,7 +50,6 @@ func RunServer() error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("GET /health")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
@@ -53,10 +59,15 @@ func RunServer() error {
 		mux.HandleFunc(r.Pattern, r.Handler)
 	}
 
+	var h http.Handler = mux
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		h = middlewares[i](h)
+	}
+
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      h,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

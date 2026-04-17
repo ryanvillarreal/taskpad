@@ -1,9 +1,16 @@
 package notes
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrNotFound = errors.New("note not found")
 
 type Note struct {
-	ID        string    `json:"id"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string
+	Body         string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Frontmatter  map[string]any
 }
