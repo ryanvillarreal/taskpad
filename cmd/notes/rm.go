@@ -1,4 +1,4 @@
-package cmd
+package notescmd
 
 import (
 	"log/slog"
@@ -21,5 +21,5 @@ var rmCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(rmCmd)
+	NoteCmd.AddCommand(rmCmd)
 }

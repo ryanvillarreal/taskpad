@@ -1,4 +1,4 @@
-package cmd
+package notescmd
 
 import (
 	"log/slog"
@@ -10,7 +10,7 @@ import (
 
 var noteNew bool
 
-var noteCmd = &cobra.Command{
+var NoteCmd = &cobra.Command{
 	Use:   "note [id]",
 	Short: "open a note in $EDITOR and sync on save (defaults to today)",
 	Args:  cobra.MaximumNArgs(1),
@@ -29,6 +29,5 @@ var noteCmd = &cobra.Command{
 }
 
 func init() {
-	noteCmd.Flags().BoolVar(&noteNew, "new", false, "create the note if it doesn't exist")
-	rootCmd.AddCommand(noteCmd)
+	NoteCmd.Flags().BoolVar(&noteNew, "new", false, "create the note if it doesn't exist")
 }

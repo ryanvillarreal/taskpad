@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// quick edit the config command
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "open the taskpad config file in $EDITOR",

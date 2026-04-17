@@ -1,4 +1,4 @@
-package cmd
+package notescmd
 
 import (
 	"fmt"
@@ -29,5 +29,5 @@ var lsCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(lsCmd)
+	NoteCmd.AddCommand(lsCmd)
 }

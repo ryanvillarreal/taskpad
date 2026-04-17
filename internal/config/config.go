@@ -6,19 +6,6 @@ import (
 	"path/filepath"
 )
 
-/*
-# exposed
-Struct Config - base_url and port
-ConfigPath() - externally available config pathing
-Load() - creates or loads cfg file
-
-# built-ins
-defaults() - creates the Config struct with defaults
-configPath() - gets the user's configuration path
-writeDefaults() - writes the defaults if non-existent
-overrideString() - Gets env variables first?
-*/
-
 type Config struct {
 	BaseURL  string    `json:"base_url"`
 	Host     string    `json:"host"`
