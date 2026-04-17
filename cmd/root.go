@@ -1,39 +1,34 @@
 package cmd
 
 import (
-	"github.com/ryanvillarreal/taskpad/internal/config"
-	"github.com/ryanvillarreal/taskpad/internal/logging"
-	"github.com/spf13/cobra"
 	"log/slog"
 	"os"
+
+	"github.com/ryanvillarreal/taskpad/internal/config"
+	logs "github.com/ryanvillarreal/taskpad/internal/logging"
+	"github.com/spf13/cobra"
 )
+
+var verbose bool
 
 var rootCmd = &cobra.Command{
 	Use:   "taskpad",
 	Short: "note taking app for the lols",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		logs.Start(verbose)
+	},
 }
 
-/*
-exposed:
-Execute() - main entry point into Cobra
-
-init() - start logging first
-*/
 func init() {
-	// start logging before anything else
-	logs.Start()
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
 }
 
 func Execute() {
-	err := rootCmd.Execute()
-
-	// now that logging is on we have visibility
-	// Check for verbose flag to increase logging
-	if err != nil {
-		slog.Error("Ruh Roh Raggy:", err)
+	if err := rootCmd.Execute(); err != nil {
+		slog.Error("Ruh Roh Raggy", "err", err)
 		os.Exit(1)
 	}
 
 	cfg := config.Load()
-	slog.Info("%s", cfg)
+	slog.Debug("Config loaded", "cfg", cfg)
 }

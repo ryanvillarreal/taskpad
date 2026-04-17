@@ -20,8 +20,16 @@ overrideString() - Gets env variables first?
 */
 
 type Config struct {
-	BASE_URL string `json:"base_url"`
-	PORT     string `json:"port"`
+	BaseURL string    `json:"base_url"`
+	Host    string    `json:"host"`
+	Port    string    `json:"port"`
+	TLS     TLSConfig `json:"tls"`
+}
+
+type TLSConfig struct {
+	Enabled  bool   `json:"enabled"`
+	CertFile string `json:"cert_file"`
+	KeyFile  string `json:"key_file"`
 }
 
 func ConfigPath() string {
@@ -56,8 +64,14 @@ func configPath() string {
 // auto-generate sane defaults
 func defaults() Config {
 	return Config{
-		BASE_URL: "http://localhost:8080",
-		PORT:     "8080",
+		BaseURL: "http://localhost:8080",
+		Host:    "",
+		Port:    "8080",
+		TLS: TLSConfig{
+			Enabled:  false,
+			CertFile: "",
+			KeyFile:  "",
+		},
 	}
 }
 

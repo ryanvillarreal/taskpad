@@ -31,9 +31,13 @@ Start() - begins logging to file and handles output quality control
 internals:
 */
 
-func Start() {
+func Start(verbose bool) {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
 	logger := slog.New(NewHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: level,
 	}))
 	slog.SetDefault(logger)
 }

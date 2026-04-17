@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/ryanvillarreal/taskpad/internal/config"
 )
 
 /*
@@ -34,44 +38,58 @@ func Register(rs ...Route) {
 }
 
 func RunServer() error {
-	slog.Info("Starting API Server")
+	cfg := config.Load()
 
-	// create http mux
 	mux := http.NewServeMux()
 
-	// create health endpoint - quick and easy
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("GET /health")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// mount routes registered by handler packages
 	for _, r := range routes {
 		slog.Debug("registering route", "pattern", r.Pattern)
 		mux.HandleFunc(r.Pattern, r.Handler)
 	}
 
-	var h http.Handler = mux
-
-	//TODO is this taking in account of our config?
-	// TODO do we need to handle better defaults here?
+	addr := net.JoinHostPort(cfg.Host, cfg.Port)
 	srv := &http.Server{
-		Addr:         ":8080",
-		Handler:      h,
+		Addr:         addr,
+		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// finally fork into new go proc
+	scheme := "http"
+	if cfg.TLS.Enabled {
+		if cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" {
+			return fmt.Errorf("tls enabled but cert_file or key_file is empty")
+		}
+		if _, err := os.Stat(cfg.TLS.CertFile); err != nil {
+			return fmt.Errorf("tls cert_file: %w", err)
+		}
+		if _, err := os.Stat(cfg.TLS.KeyFile); err != nil {
+			return fmt.Errorf("tls key_file: %w", err)
+		}
+		scheme = "https"
+	}
+
+	slog.Info("Starting API Server", "scheme", scheme, "addr", addr)
+
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server failed: %s", err)
+		var err error
+		if cfg.TLS.Enabled {
+			err = srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("server failed", "err", err)
 		}
 	}()
 
-	// setup binds for ctrl + c
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -85,5 +103,4 @@ func RunServer() error {
 	}
 	slog.Info("Server stopped")
 	return nil
-
 }
