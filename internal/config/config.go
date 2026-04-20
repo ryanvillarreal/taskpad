@@ -7,13 +7,15 @@ import (
 )
 
 type Config struct {
-	BaseURL  string       `json:"base_url"`
-	Host     string       `json:"host"`
-	Port     string       `json:"port"`
-	NotesDir string       `json:"notes_dir"`
-	TasksDir string       `json:"tasks_dir"`
-	TLS      TLSConfig    `json:"tls"`
-	Notify   NotifyConfig `json:"notify"`
+	BaseURL    string       `json:"base_url"`
+	Host       string       `json:"host"`
+	Port       string       `json:"port"`
+	NotesDir   string       `json:"notes_dir"`
+	TasksDir   string       `json:"tasks_dir"`
+	LinksDir   string       `json:"links_dir"`
+	FetchLimit int          `json:"fetch_limit"`
+	TLS        TLSConfig    `json:"tls"`
+	Notify     NotifyConfig `json:"notify"`
 }
 
 type NotifyConfig struct {
@@ -51,8 +53,15 @@ func Load() Config {
 	if cfg.TasksDir == "" {
 		cfg.TasksDir = defaultTasksDir(cfg.NotesDir)
 	}
+	if cfg.LinksDir == "" {
+		cfg.LinksDir = defaultLinksDir(cfg.NotesDir)
+	}
+	if cfg.FetchLimit == 0 {
+		cfg.FetchLimit = 5000
+	}
 	_ = os.MkdirAll(cfg.NotesDir, 0o755)
 	_ = os.MkdirAll(cfg.TasksDir, 0o755)
+	_ = os.MkdirAll(cfg.LinksDir, 0o755)
 
 	return cfg
 }
@@ -74,8 +83,10 @@ func defaults() Config {
 		BaseURL:  "http://localhost:8080",
 		Host:     "",
 		Port:     "8080",
-		NotesDir: notesDir,
-		TasksDir: defaultTasksDir(notesDir),
+		NotesDir:   notesDir,
+		TasksDir:   defaultTasksDir(notesDir),
+		LinksDir:   defaultLinksDir(notesDir),
+		FetchLimit: 5000,
 		TLS: TLSConfig{
 			Enabled:  false,
 			CertFile: "",
@@ -92,6 +103,10 @@ func defaults() Config {
 
 func defaultTasksDir(notesDir string) string {
 	return filepath.Join(notesDir, "tasks")
+}
+
+func defaultLinksDir(notesDir string) string {
+	return filepath.Join(notesDir, "links")
 }
 
 func defaultNotesDir() string {

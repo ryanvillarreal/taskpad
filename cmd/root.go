@@ -6,6 +6,7 @@ import (
 
 	"github.com/ryanvillarreal/taskpad/internal/config"
 	logs "github.com/ryanvillarreal/taskpad/internal/logging"
+	linkscmd "github.com/ryanvillarreal/taskpad/cmd/links"
 	notescmd "github.com/ryanvillarreal/taskpad/cmd/notes"
 	taskscmd "github.com/ryanvillarreal/taskpad/cmd/tasks"
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
 	rootCmd.AddCommand(notescmd.NoteCmd)
 	rootCmd.AddCommand(taskscmd.TaskCmd)
+	rootCmd.AddCommand(linkscmd.LinkCmd)
 }
 
 func Execute() {

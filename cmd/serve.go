@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	_ "github.com/ryanvillarreal/taskpad/internal/links" // registers link routes
 	_ "github.com/ryanvillarreal/taskpad/internal/notes" // registers note routes
 	_ "github.com/ryanvillarreal/taskpad/internal/tasks" // registers task routes + scheduler
 	"github.com/ryanvillarreal/taskpad/internal/server"
