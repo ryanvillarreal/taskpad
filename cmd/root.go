@@ -8,6 +8,7 @@ import (
 	logs "github.com/ryanvillarreal/taskpad/internal/logging"
 	linkscmd "github.com/ryanvillarreal/taskpad/cmd/links"
 	notescmd "github.com/ryanvillarreal/taskpad/cmd/notes"
+	searchcmd "github.com/ryanvillarreal/taskpad/cmd/search"
 	taskscmd "github.com/ryanvillarreal/taskpad/cmd/tasks"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,7 @@ func init() {
 	rootCmd.AddCommand(notescmd.NoteCmd)
 	rootCmd.AddCommand(taskscmd.TaskCmd)
 	rootCmd.AddCommand(linkscmd.LinkCmd)
+	rootCmd.AddCommand(searchcmd.SearchCmd)
 }
 
 func Execute() {

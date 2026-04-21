@@ -14,7 +14,7 @@ var NoteCmd = &cobra.Command{
 	Use:     "note [id]",
 	Aliases: []string{"n"},
 	Short:   "open a note in $EDITOR and sync on save (defaults to today)",
-	Args:  cobra.MaximumNArgs(1),
+	Args:    cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := ""
 		allowCreate := true

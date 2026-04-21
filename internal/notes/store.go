@@ -1,9 +1,11 @@
 package notes
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Store struct {
@@ -15,11 +17,19 @@ func NewStore(dir string) *Store {
 }
 
 func (s *Store) path(id string) string {
-	return filepath.Join(s.dir, id+".md")
+	t, err := time.Parse("01.02.2006", id)
+	if err != nil {
+		return filepath.Join(s.dir, id+".md")
+	}
+	return filepath.Join(s.dir, t.Format("06"), t.Format("01"), id+".md")
 }
 
 func (s *Store) Read(id string) (*Note, error) {
 	data, err := os.ReadFile(s.path(id))
+	if os.IsNotExist(err) {
+		flat := filepath.Join(s.dir, id+".md")
+		data, err = os.ReadFile(flat)
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrNotFound
@@ -35,6 +45,9 @@ func (s *Store) Write(n *Note) error {
 		return err
 	}
 	target := s.path(n.ID)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
 	tmp := target + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
@@ -44,6 +57,9 @@ func (s *Store) Write(n *Note) error {
 
 func (s *Store) Delete(id string) error {
 	err := os.Remove(s.path(id))
+	if os.IsNotExist(err) {
+		err = os.Remove(filepath.Join(s.dir, id+".md"))
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
@@ -54,35 +70,33 @@ func (s *Store) Delete(id string) error {
 }
 
 func (s *Store) List() ([]string, error) {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	var ids []string
+	err := filepath.WalkDir(s.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".md") {
-			continue
+		if d.IsDir() {
+			return nil
 		}
-		ids = append(ids, strings.TrimSuffix(name, ".md"))
-	}
-	return ids, nil
+		name := d.Name()
+		if strings.HasSuffix(name, ".md") {
+			ids = append(ids, strings.TrimSuffix(name, ".md"))
+		}
+		return nil
+	})
+	return ids, err
 }
 
 func (s *Store) Count() (int, error) {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		return 0, err
-	}
 	n := 0
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+	err := filepath.WalkDir(s.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
 			n++
 		}
-	}
-	return n, nil
+		return nil
+	})
+	return n, err
 }
-
